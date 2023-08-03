@@ -1,5 +1,6 @@
 """ Full assembly of the parts to form the complete network """
-import os,sys,inspect
+import os, sys, inspect
+
 # sys.path.insert(1, os.path.join(sys.path[0], '../../../'))
 import torch.nn.functional as F
 import numpy as np
@@ -12,6 +13,7 @@ import models.unet_dropout.src.utils as utils
 import wandb
 import matplotlib.pyplot as plt
 from meddlr.ops import complex as cplx
+
 
 class UNet(nn.Module):
     def __init__(self, n_channels_in, n_channels_out, bilinear=True):
@@ -52,25 +54,22 @@ class UNet(nn.Module):
         x = self.up4(x, x1)
         x = self.out(x)
 
-        return x 
+        return x
 
-    def loss(self,y_hat, y):
-        criterion = torch.nn.MSELoss(reduction='none')
-        
+    def loss(self, y_hat, y):
+        criterion = torch.nn.MSELoss(reduction="none")
+
         y_flat = y.reshape((y.shape[0], -1))
         y_hat_flat = y_hat.reshape((y.shape[0], -1))
         recon_loss = criterion(input=y_hat_flat, target=y_flat).sum(dim=1)
 
-
         return torch.mean(recon_loss)
 
-    
     def enable_dropout(self):
-        """ Function to enable the dropout layers during test-time """
+        """Function to enable the dropout layers during test-time"""
         for m in self.modules():
-            if m.__class__.__name__.startswith('Dropout'):
+            if m.__class__.__name__.startswith("Dropout"):
                 m.train()
-
 
     def make_prediction(self, img):
         """Perform prediction by sampling 20 samples and taking the mean sample
@@ -79,7 +78,7 @@ class UNet(nn.Module):
             img (torch.Tensor): The undersampled image to reconstruct with shape (n_batch, n_channel, width, height)
 
         Returns:
-            torch.Tensor: The reconstruction from multiple samples with same shape as input 
+            torch.Tensor: The reconstruction from multiple samples with same shape as input
         """
         self.enable_dropout()
         samples = []
@@ -90,21 +89,20 @@ class UNet(nn.Module):
             for i in range(20):
                 output = self.forward(img)
                 samples.append(output)
-        
-        return torch.stack(samples)#.mean(dim=0)
+
+        return torch.stack(samples)  # .mean(dim=0)
 
 
 def compute_train_loss_and_train(train_loader, model, optimizer, use_gpu, epoch):
-
     model.train()
 
     running_loss = 0.0
 
-    for x,y,_,_ in train_loader:
+    for x, y, _, _ in train_loader:
         if use_gpu:
             x = x.cuda()
             y = y.cuda()
-        
+
         # compute forward pass
         output = model(x)
 
@@ -116,13 +114,10 @@ def compute_train_loss_and_train(train_loader, model, optimizer, use_gpu, epoch)
 
         running_loss += loss * train_loader.batch_size
         torch.cuda.empty_cache()
-    
-
 
     epoch_loss = running_loss / len(train_loader.dataset)
 
     return epoch_loss
-
 
 
 def compute_eval_loss(test_loader, model, use_gpu, epoch):
@@ -133,16 +128,15 @@ def compute_eval_loss(test_loader, model, use_gpu, epoch):
 
     running_loss = 0.0
     with torch.no_grad():
-        for x,y,_,_ in test_loader:
+        for x, y, _, _ in test_loader:
             if use_gpu:
                 x = x.cuda()
                 y = y.cuda()
-            
+
             # compute forward pass
             output = model(x)
 
             loss = model.loss(output, y)
-
 
             running_loss += loss * test_loader.batch_size
     torch.cuda.empty_cache()
@@ -151,67 +145,83 @@ def compute_eval_loss(test_loader, model, use_gpu, epoch):
     return epoch_loss
 
 
-def train_model(model, train_loader, eval_loader, optim, epochs=1, save_model=None, save_path=None, continue_training_path=None, eval_metric=None):
+def train_model(
+    model,
+    train_loader,
+    eval_loader,
+    optim,
+    epochs=1,
+    save_model=None,
+    save_path=None,
+    continue_training_path=None,
+    eval_metric=None,
+):
     end_epoch = 0
     use_gpu = torch.cuda.is_available()
 
     if continue_training_path:
         checkpoint = torch.load(continue_training_path)
-        model.load_state_dict(checkpoint['model_state_dict'])
+        model.load_state_dict(checkpoint["model_state_dict"])
         if use_gpu:
             model.cuda()
         optim = torch.optim.Adam(model.parameters(), lr=0.0001)
-        optim.load_state_dict(checkpoint['optimizer_state_dict'])
-        end_epoch = checkpoint['epoch']
+        optim.load_state_dict(checkpoint["optimizer_state_dict"])
+        end_epoch = checkpoint["epoch"]
     if use_gpu:
         model.cuda()
-    
-    # define current best losses 
+
+    # define current best losses
     best_total_eval_loss = np.inf
     best_ssim = -np.inf
-
 
     # initialize W&B project
 
     for epoch in range(end_epoch, epochs):
-        print('Epoch:', epoch)
+        print("Epoch:", epoch)
 
         # train the model
-        train_running_loss = compute_train_loss_and_train(train_loader, model, optim, use_gpu, epoch=epoch)
+        train_running_loss = compute_train_loss_and_train(
+            train_loader, model, optim, use_gpu, epoch=epoch
+        )
 
         # compute evaluation loss
         eval_running_loss = compute_eval_loss(eval_loader, model, use_gpu, epoch)
 
         if eval_metric:
-            if epoch % 50 == 0: # compute only every 10 epochs
+            if epoch % 50 == 0:  # compute only every 10 epochs
                 psnr, ssim = utils.eval_ssim_psnr(model, eval_loader, n_samples=20)
-                print('psnr:',psnr)
-                print('ssim:',ssim)
+                print("psnr:", psnr)
+                print("ssim:", ssim)
 
-        
-        if save_model==True:
+        if save_model == True:
             if eval_running_loss < best_total_eval_loss:
                 best_total_eval_loss = eval_running_loss
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optim.state_dict(),
-                    'loss': train_running_loss,
-                    }, f'{save_path}unet_dropout_best_eval_epoch{epoch}.pth')
-                print('saving best eval model')
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optim.state_dict(),
+                        "loss": train_running_loss,
+                    },
+                    f"{save_path}unet_dropout_best_eval_epoch{epoch}.pth",
+                )
+                print("saving best eval model")
             if eval_metric:
                 if epoch % 50 == 0:
                     if ssim > best_ssim:
                         best_ssim = ssim
-                        torch.save({
-                        'epoch': epoch,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optim.state_dict(),
-                        'loss': train_running_loss,
-                        }, f'{save_path}unet_dropout_best_ssim_epoch{epoch}.pth')
-                        print('saving best GED model')
-            
-        print('training loss:', train_running_loss)
-        print('evaluation loss:', eval_running_loss)
+                        torch.save(
+                            {
+                                "epoch": epoch,
+                                "model_state_dict": model.state_dict(),
+                                "optimizer_state_dict": optim.state_dict(),
+                                "loss": train_running_loss,
+                            },
+                            f"{save_path}unet_dropout_best_ssim_epoch{epoch}.pth",
+                        )
+                        print("saving best GED model")
+
+        print("training loss:", train_running_loss)
+        print("evaluation loss:", eval_running_loss)
 
     return

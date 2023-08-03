@@ -7,7 +7,6 @@ from typing import Optional
 from meddlr.ops import complex as cplx
 
 
-
 def truncated_normal_(tensor, mean=0, std=1):
     size = tensor.shape
     tmp = tensor.new_empty(size + (4,)).normal_()
@@ -19,9 +18,9 @@ def truncated_normal_(tensor, mean=0, std=1):
 
 def init_weights(m):
     if type(m) == nn.Conv2d or type(m) == nn.ConvTranspose2d:
-        nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
-        #nn.init.normal_(m.weight, std=0.001)
-        #nn.init.normal_(m.bias, std=0.001)
+        nn.init.kaiming_normal_(m.weight, mode="fan_in", nonlinearity="relu")
+        # nn.init.normal_(m.weight, std=0.001)
+        # nn.init.normal_(m.bias, std=0.001)
         truncated_normal_(m.bias, mean=0, std=0.001)
 
 
@@ -29,7 +28,7 @@ def init_weights_orthogonal_normal(m):
     if type(m) == nn.Conv2d or type(m) == nn.ConvTranspose2d:
         nn.init.orthogonal_(m.weight)
         truncated_normal_(m.bias, mean=0, std=0.001)
-        #nn.init.normal_(m.bias, std=0.001)
+        # nn.init.normal_(m.bias, std=0.001)
 
 
 def l2_regularisation(m):
@@ -44,9 +43,9 @@ def l2_regularisation(m):
 
 
 def normalise_image(image):
-    '''
+    """
     make image zero mean and unit standard deviation
-    '''
+    """
 
     img_o = np.float32(image.copy())
     m = np.mean(img_o)
@@ -55,37 +54,33 @@ def normalise_image(image):
 
 
 def normalise_images(X):
-    '''
+    """
     Helper for making the images zero mean and unit standard deviation i.e. `white`
-    '''
+    """
 
     X_white = np.zeros(X.shape, dtype=np.float32)
 
     for ii in range(X.shape[0]):
-
-        Xc = X[ii,...]
-        X_white[ii,...] = normalise_image(Xc)
+        Xc = X[ii, ...]
+        X_white[ii, ...] = normalise_image(Xc)
 
     return X_white.astype(np.float32)
-
 
 
 def convert_nhwc_to_nchw(tensor):
     result = tensor.transpose(1, 3).transpose(2, 3)
     return result
 
-def ncc(a,v, zero_norm=True):
 
+def ncc(a, v, zero_norm=True):
     a = a.flatten()
     v = v.flatten()
 
     if zero_norm:
-
         a = (a - np.mean(a)) / (np.std(a) * len(a))
         v = (v - np.mean(v)) / np.std(v)
 
     else:
-
         a = (a) / (np.std(a) * len(a))
         v = (v) / np.std(v)
 
@@ -96,7 +91,8 @@ def convert_nchw_to_nhwc(tensor):
     result = tensor.transpose(1, 3).transpose(1, 2)
     assert torch.equal(tensor, convert_nhwc_to_nchw(result))
 
-def generate_n_samples_old(model, x, y, model_type, n_samples=100, device='cuda:0'):
+
+def generate_n_samples_old(model, x, y, model_type, n_samples=100, device="cuda:0"):
     """
     performs n times a forward pass and saves the returned segmentations in a list (the accumulated outputs)
     params:
@@ -112,7 +108,7 @@ def generate_n_samples_old(model, x, y, model_type, n_samples=100, device='cuda:
         model.to(device)
         x = x.to(device)
     with torch.no_grad():
-        if model_type == 'phiseg':
+        if model_type == "phiseg":
             for i in range(n_samples):
                 # encode
                 prior_latent_space, _, _ = model.prior(x, training_prior=False)
@@ -120,8 +116,8 @@ def generate_n_samples_old(model, x, y, model_type, n_samples=100, device='cuda:
                 s_out_list = model.likelihood(prior_latent_space)
                 accumulated = model.accumulate_output(s_out_list, use_softmax=False)
                 samples.append(accumulated)
-                del(accumulated)
-                del(s_out_list)
+                del accumulated
+                del s_out_list
         else:
             model(x, y)
             # sample
@@ -130,6 +126,7 @@ def generate_n_samples_old(model, x, y, model_type, n_samples=100, device='cuda:
                     sample = model.sample(testing=True)
                     samples.append(sample)
         return torch.stack(samples)
+
 
 def psnr(
     gt: np.ndarray, pred: np.ndarray, maxval: Optional[float] = None
@@ -143,11 +140,11 @@ def psnr(
 def mse_error_map(gt, samples):
     # shape of gt: (1,1,d1,d2)
     # shape of samples: (n_samples, 1,1,d1,d2)
-    gt_reshaped = gt[0,0,:,:]
-    sampes_reshaped = samples[:,0,0,:,:]
+    gt_reshaped = gt[0, 0, :, :]
+    sampes_reshaped = samples[:, 0, 0, :, :]
 
     mse_errors = []
-    loss_fn = torch.nn.MSELoss(reduction='none')
+    loss_fn = torch.nn.MSELoss(reduction="none")
 
     with torch.no_grad():
         for i in range(len(sampes_reshaped)):
@@ -156,6 +153,7 @@ def mse_error_map(gt, samples):
     mse_errors = np.array(mse_errors)
 
     return np.mean(mse_errors, axis=0)
+
 
 def eval_ssim_psnr_ncc(model, loader, n_samples, model_type, device):
     """
@@ -168,19 +166,25 @@ def eval_ssim_psnr_ncc(model, loader, n_samples, model_type, device):
     with torch.no_grad():
         for x, y, _, _ in loader:
             # sample here first
-            if model_type == 'phiseg':
-                samples = generate_n_samples_old(model, x, y, model_type, n_samples=n_samples, device=device) + x.to(device)# + model.transform_to_complex_abs(x).to(device)
+            if model_type == "phiseg":
+                samples = generate_n_samples_old(
+                    model, x, y, model_type, n_samples=n_samples, device=device
+                ) + x.to(
+                    device
+                )  # + model.transform_to_complex_abs(x).to(device)
             else:
-                samples = generate_n_samples_old(model, x, y, model_type, n_samples=n_samples, device=device)
-            
+                samples = generate_n_samples_old(
+                    model, x, y, model_type, n_samples=n_samples, device=device
+                )
+
             # compute complex absolute
-            samples = cplx.abs(samples.permute((0,1,3,4,2))).unsqueeze(1)
-            y = cplx.abs(y.permute((0,2,3,1))).unsqueeze(1)
-            
+            samples = cplx.abs(samples.permute((0, 1, 3, 4, 2))).unsqueeze(1)
+            y = cplx.abs(y.permute((0, 2, 3, 1))).unsqueeze(1)
+
             # compute the mse error map
             err_map = mse_error_map(y, samples.cpu())
-            
-            # go back to cpu 
+
+            # go back to cpu
             samples = np.asarray(samples.cpu())
             # compute mean sample and variance
             mean_sample = np.mean(samples, axis=0).reshape((x.shape[-2], x.shape[-1]))
@@ -188,17 +192,20 @@ def eval_ssim_psnr_ncc(model, loader, n_samples, model_type, device):
             # reshape gt for computations
             gt_reshaped = y.cpu().numpy().reshape((y.shape[-2], y.shape[-1]))
             # calculate ssim + append to list
-            ssim_elem = structural_similarity(gt_reshaped, mean_sample, data_range=gt_reshaped.max()-gt_reshaped.min() )
+            ssim_elem = structural_similarity(
+                gt_reshaped,
+                mean_sample,
+                data_range=gt_reshaped.max() - gt_reshaped.min(),
+            )
             ssim_list.append(ssim_elem)
 
             # do the same for psnr
             psnr_elem = psnr(gt_reshaped, mean_sample)
             psnr_list.append(psnr_elem)
 
-            # and now the ncc 
+            # and now the ncc
             ncc_elem = ncc(var, err_map)
             ncc_list.append(ncc_elem)
-
 
     mean_psnr = np.mean(np.asarray(psnr_list))
     mean_ssim = np.mean(np.asarray(ssim_list))

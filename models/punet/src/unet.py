@@ -13,25 +13,49 @@ import wandb
 import matplotlib.pyplot as plt
 
 
-
 class DownConvBlock(nn.Module):
     """
     A block of three convolutional layers where each layer is followed by a non-linear activation function
     Between each block we add a pooling operation.
     """
-    def __init__(self, input_dim, output_dim, initializers, padding, pool=True, reversible=False):
+
+    def __init__(
+        self, input_dim, output_dim, initializers, padding, pool=True, reversible=False
+    ):
         super(DownConvBlock, self).__init__()
         layers = []
 
         if pool:
-            layers.append(nn.AvgPool2d(kernel_size=2, stride=2, padding=0, ceil_mode=True))
+            layers.append(
+                nn.AvgPool2d(kernel_size=2, stride=2, padding=0, ceil_mode=True)
+            )
 
         if not reversible:
-            layers.append(nn.Conv2d(input_dim, output_dim, kernel_size=3, stride=1, padding=int(padding)))
+            layers.append(
+                nn.Conv2d(
+                    input_dim, output_dim, kernel_size=3, stride=1, padding=int(padding)
+                )
+            )
             layers.append(nn.ReLU(inplace=True))
-            layers.append(nn.Conv2d(output_dim, output_dim, kernel_size=3, stride=1, padding=int(padding)))
+            layers.append(
+                nn.Conv2d(
+                    output_dim,
+                    output_dim,
+                    kernel_size=3,
+                    stride=1,
+                    padding=int(padding),
+                )
+            )
             layers.append(nn.ReLU(inplace=True))
-            layers.append(nn.Conv2d(output_dim, output_dim, kernel_size=3, stride=1, padding=int(padding)))
+            layers.append(
+                nn.Conv2d(
+                    output_dim,
+                    output_dim,
+                    kernel_size=3,
+                    stride=1,
+                    padding=int(padding),
+                )
+            )
             layers.append(nn.ReLU(inplace=True))
             self.layers = nn.Sequential(*layers)
         else:
@@ -51,25 +75,38 @@ class UpConvBlock(nn.Module):
     If bilinear is set to false, we do a transposed convolution instead of upsampling
     """
 
-    def __init__(self, input_dim, output_dim, initializers, padding, bilinear=True, reversible=False):
+    def __init__(
+        self,
+        input_dim,
+        output_dim,
+        initializers,
+        padding,
+        bilinear=True,
+        reversible=False,
+    ):
         super(UpConvBlock, self).__init__()
         self.bilinear = bilinear
 
         if not self.bilinear:
-            self.upconv_layer = nn.ConvTranspose2d(input_dim, output_dim, kernel_size=2, stride=2)
+            self.upconv_layer = nn.ConvTranspose2d(
+                input_dim, output_dim, kernel_size=2, stride=2
+            )
             self.upconv_layer.apply(init_weights)
 
-        self.conv_block = DownConvBlock(input_dim,
-                                        output_dim,
-                                        initializers,
-                                        padding,
-                                        pool=False,
-                                        reversible=reversible
-                                        )
+        self.conv_block = DownConvBlock(
+            input_dim,
+            output_dim,
+            initializers,
+            padding,
+            pool=False,
+            reversible=reversible,
+        )
 
     def forward(self, x, bridge):
         if self.bilinear:
-            up = nn.functional.interpolate(x, mode='bilinear', scale_factor=2, align_corners=False)
+            up = nn.functional.interpolate(
+                x, mode="bilinear", scale_factor=2, align_corners=False
+            )
         else:
             up = self.upconv_layer(x)
 
@@ -90,9 +127,20 @@ class Unet(nn.Module):
     padding: Boolean, if true we pad the images with 1 so that we keep the same dimensions
     """
 
-    def __init__(self, input_channels, num_classes, num_filters,
-                 initializers=None, apply_last_layer=True, padding=True,
-                 reversible=False, training=False, latent_dim=3, no_convs_fcomb=4, beta=1.0):
+    def __init__(
+        self,
+        input_channels,
+        num_classes,
+        num_filters,
+        initializers=None,
+        apply_last_layer=True,
+        padding=True,
+        reversible=False,
+        training=False,
+        latent_dim=3,
+        no_convs_fcomb=4,
+        beta=1.0,
+    ):
         super(Unet, self).__init__()
         self.input_channels = input_channels
         self.num_classes = num_classes
@@ -113,7 +161,15 @@ class Unet(nn.Module):
                 pool = True
 
             self.contracting_path.append(
-                DownConvBlock(input, output, initializers, padding, pool=pool, reversible=reversible))
+                DownConvBlock(
+                    input,
+                    output,
+                    initializers,
+                    padding,
+                    pool=pool,
+                    reversible=reversible,
+                )
+            )
 
         self.upsampling_path = nn.ModuleList()
 
@@ -121,12 +177,14 @@ class Unet(nn.Module):
         for i in range(n, -1, -1):
             input = output + self.num_filters[i]
             output = self.num_filters[i]
-            self.upsampling_path.append(UpConvBlock(input, output, initializers, padding, reversible=reversible))
+            self.upsampling_path.append(
+                UpConvBlock(input, output, initializers, padding, reversible=reversible)
+            )
 
         if self.apply_last_layer:
             self.last_layer = nn.Conv2d(output, num_classes, kernel_size=1)
-            #nn.init.kaiming_normal_(self.last_layer.weight, mode='fan_in',nonlinearity='relu')
-            #nn.init.normal_(self.last_layer.bias)
+            # nn.init.kaiming_normal_(self.last_layer.weight, mode='fan_in',nonlinearity='relu')
+            # nn.init.normal_(self.last_layer.bias)
 
     def sample(self, testing=True):
         return self.prediction
@@ -142,18 +200,18 @@ class Unet(nn.Module):
 
         for i, down in enumerate(self.contracting_path):
             x = down(x)
-            if i != len(self.contracting_path)-1:
+            if i != len(self.contracting_path) - 1:
                 blocks.append(x)
 
         for i, up in enumerate(self.upsampling_path):
-            x = up(x, blocks[-i-1])
+            x = up(x, blocks[-i - 1])
 
         del blocks
 
-        #Used for saving the activations and plotting
+        # Used for saving the activations and plotting
         if val:
             self.activation_maps.append(x)
-        
+
         if self.apply_last_layer:
             x = self.last_layer(x)
 
@@ -161,14 +219,15 @@ class Unet(nn.Module):
         return x
 
     def loss(self, mask):
-        criterion = torch.nn.MSELoss(reduction='none')
+        criterion = torch.nn.MSELoss(reduction="none")
 
         batch_size = mask.shape[0]
 
         recon_flat = self.prediction.view(batch_size, -1)
         target_flat = mask.view(batch_size, -1)
 
-        loss = torch.mean(torch.sum(criterion(target=target_flat, input=recon_flat), dim=1))
-
+        loss = torch.mean(
+            torch.sum(criterion(target=target_flat, input=recon_flat), dim=1)
+        )
 
         return loss

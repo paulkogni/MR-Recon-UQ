@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from models.unet_segm.src.unet_parts import *
 
+
 # U-Net architecture
 class UNet(nn.Module):
     def __init__(self, n_channels, n_classes, bilinear=False):
@@ -14,17 +15,17 @@ class UNet(nn.Module):
         self.n_classes = n_classes
         self.bilinear = bilinear
 
-        self.inc = (DoubleConv(n_channels, 64))
-        self.down1 = (Down(64, 128))
-        self.down2 = (Down(128, 256))
-        self.down3 = (Down(256, 512))
+        self.inc = DoubleConv(n_channels, 64)
+        self.down1 = Down(64, 128)
+        self.down2 = Down(128, 256)
+        self.down3 = Down(256, 512)
         factor = 2 if bilinear else 1
-        self.down4 = (Down(512, 1024 // factor))
-        self.up1 = (Up(1024, 512 // factor, bilinear))
-        self.up2 = (Up(512, 256 // factor, bilinear))
-        self.up3 = (Up(256, 128 // factor, bilinear))
-        self.up4 = (Up(128, 64, bilinear))
-        self.outc = (OutConv(64, n_classes))
+        self.down4 = Down(512, 1024 // factor)
+        self.up1 = Up(1024, 512 // factor, bilinear)
+        self.up2 = Up(512, 256 // factor, bilinear)
+        self.up3 = Up(256, 128 // factor, bilinear)
+        self.up4 = Up(128, 64, bilinear)
+        self.outc = OutConv(64, n_classes)
 
     def forward(self, x):
         x1 = self.inc(x)
@@ -53,7 +54,9 @@ class UNet(nn.Module):
 
     def loss(self, pred, target):
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
-        loss = torch.mean(torch.sum(criterion(input=pred, target=target.long()), dim=(1, 2)))
+        loss = torch.mean(
+            torch.sum(criterion(input=pred, target=target.long()), dim=(1, 2))
+        )
         return loss
 
     def make_prediction(self, img):
@@ -69,17 +72,17 @@ class UNet(nn.Module):
         out_pred = torch.argmax(out, dim=1).squeeze()
         return out_pred
 
-def compute_train_loss_and_train(train_loader, model, optimizer, use_gpu, epoch):
 
+def compute_train_loss_and_train(train_loader, model, optimizer, use_gpu, epoch):
     model.train()
 
     running_loss = 0.0
 
-    for x,y,_,_ in train_loader:
+    for x, y, _, _ in train_loader:
         if use_gpu:
             x = x.cuda()
             y = y.cuda()
-        
+
         # compute forward pass
         output = model(x)
 
@@ -92,11 +95,9 @@ def compute_train_loss_and_train(train_loader, model, optimizer, use_gpu, epoch)
         running_loss += loss * train_loader.batch_size
         torch.cuda.empty_cache()
 
-
     epoch_loss = running_loss / len(train_loader.dataset)
 
     return epoch_loss
-
 
 
 def compute_eval_loss(test_loader, model, use_gpu, epoch):
@@ -107,16 +108,15 @@ def compute_eval_loss(test_loader, model, use_gpu, epoch):
 
     running_loss = 0.0
     with torch.no_grad():
-        for x,y,_,_ in test_loader:
+        for x, y, _, _ in test_loader:
             if use_gpu:
                 x = x.cuda()
                 y = y.cuda()
-            
+
             # compute forward pass
             output = model(x)
 
             loss = model.loss(output, y)
-
 
             running_loss += loss * test_loader.batch_size
     torch.cuda.empty_cache()
@@ -125,47 +125,60 @@ def compute_eval_loss(test_loader, model, use_gpu, epoch):
     return epoch_loss
 
 
-def train_model(model, train_loader, eval_loader, optim, epochs=1, save_model=None, save_path=None, continue_training_path=None, eval_metric=None):
+def train_model(
+    model,
+    train_loader,
+    eval_loader,
+    optim,
+    epochs=1,
+    save_model=None,
+    save_path=None,
+    continue_training_path=None,
+    eval_metric=None,
+):
     end_epoch = 0
     use_gpu = torch.cuda.is_available()
 
     if continue_training_path:
         checkpoint = torch.load(continue_training_path)
-        model.load_state_dict(checkpoint['model_state_dict'])
+        model.load_state_dict(checkpoint["model_state_dict"])
         if use_gpu:
             model.cuda()
         optim = torch.optim.Adam(model.parameters(), lr=0.0001)
-        optim.load_state_dict(checkpoint['optimizer_state_dict'])
-        end_epoch = checkpoint['epoch']
+        optim.load_state_dict(checkpoint["optimizer_state_dict"])
+        end_epoch = checkpoint["epoch"]
     if use_gpu:
         model.cuda()
-    
-    # define current best losses 
+
+    # define current best losses
     best_total_eval_loss = np.inf
 
-
     for epoch in range(end_epoch, epochs):
-        print('Epoch:', epoch)
+        print("Epoch:", epoch)
 
         # train the model
-        train_running_loss = compute_train_loss_and_train(train_loader, model, optim, use_gpu, epoch=epoch)
+        train_running_loss = compute_train_loss_and_train(
+            train_loader, model, optim, use_gpu, epoch=epoch
+        )
 
         # compute evaluation loss
         eval_running_loss = compute_eval_loss(eval_loader, model, use_gpu, epoch)
 
-        
-        if save_model==True:
+        if save_model == True:
             if eval_running_loss < best_total_eval_loss:
                 best_total_eval_loss = eval_running_loss
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optim.state_dict(),
-                    'loss': train_running_loss,
-                    }, f'{save_path}unet_seg_best_eval_epoch{epoch}.pth')
-                print('saving best eval model')
-            
-        print('training loss:', train_running_loss)
-        print('evaluation loss:', eval_running_loss)
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optim.state_dict(),
+                        "loss": train_running_loss,
+                    },
+                    f"{save_path}unet_seg_best_eval_epoch{epoch}.pth",
+                )
+                print("saving best eval model")
+
+        print("training loss:", train_running_loss)
+        print("evaluation loss:", eval_running_loss)
 
     return

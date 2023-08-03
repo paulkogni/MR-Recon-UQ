@@ -14,11 +14,11 @@ from models.punet.src.utils import l2_regularisation
 import models.punet.src.utils as utils
 import matplotlib.pyplot as plt
 
-from  models.punet.src.torchlayers import Conv2D, Conv2DSequence, ReversibleSequence
+from models.punet.src.torchlayers import Conv2D, Conv2DSequence, ReversibleSequence
 import wandb
 from meddlr.ops import complex as cplx
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class Encoder(nn.Module):
@@ -28,16 +28,17 @@ class Encoder(nn.Module):
     activation function is applied.
     """
 
-    def __init__(self,
-                 input_channels,
-                 num_filters,
-                 no_convs_per_block,
-                 num_classes=2,
-                 initializers=None,
-                 padding=True,
-                 posterior=False,
-                 reversible=False):
-
+    def __init__(
+        self,
+        input_channels,
+        num_filters,
+        no_convs_per_block,
+        num_classes=2,
+        initializers=None,
+        padding=True,
+        posterior=False,
+        reversible=False,
+    ):
         super(Encoder, self).__init__()
         self.contracting_path = nn.ModuleList()
         self.input_channels = input_channels
@@ -57,13 +58,26 @@ class Encoder(nn.Module):
             output_dim = num_filters[i]
 
             if i != 0:
-                layers.append(nn.AvgPool2d(kernel_size=2, stride=2, padding=0, ceil_mode=True))
+                layers.append(
+                    nn.AvgPool2d(kernel_size=2, stride=2, padding=0, ceil_mode=True)
+                )
 
             # subtract 1 to account for the convolution which is not reversible
             if reversible:
-                layers.append(ReversibleSequence(input_dim, output_dim, kernel=3, reversible_depth=no_convs_per_block-1))
+                layers.append(
+                    ReversibleSequence(
+                        input_dim,
+                        output_dim,
+                        kernel=3,
+                        reversible_depth=no_convs_per_block - 1,
+                    )
+                )
             else:
-                layers.append(Conv2DSequence(input_dim, output_dim, kernel=3, depth=no_convs_per_block))
+                layers.append(
+                    Conv2DSequence(
+                        input_dim, output_dim, kernel=3, depth=no_convs_per_block
+                    )
+                )
 
         self.layers = nn.Sequential(*layers)
 
@@ -79,7 +93,15 @@ class AxisAlignedConvGaussian(nn.Module):
     A convolutional net that parametrizes a Gaussian distribution with axis aligned covariance matrix.
     """
 
-    def __init__(self, input_channels, num_filters, no_convs_per_block, latent_dim, initializers, posterior=False):
+    def __init__(
+        self,
+        input_channels,
+        num_filters,
+        no_convs_per_block,
+        latent_dim,
+        initializers,
+        posterior=False,
+    ):
         super(AxisAlignedConvGaussian, self).__init__()
         self.input_channels = input_channels
         self.channel_axis = 1
@@ -88,19 +110,25 @@ class AxisAlignedConvGaussian(nn.Module):
         self.latent_dim = latent_dim
         self.posterior = posterior
         if self.posterior:
-            self.name = 'Posterior'
+            self.name = "Posterior"
         else:
-            self.name = 'Prior'
-        self.encoder = Encoder(self.input_channels,
-                               self.num_filters,
-                               self.no_convs_per_block,
-                               initializers=initializers,
-                               posterior=self.posterior)
-        self.conv_layer = nn.Conv2d(num_filters[-1], 2 * self.latent_dim, kernel_size=1, stride=1)
+            self.name = "Prior"
+        self.encoder = Encoder(
+            self.input_channels,
+            self.num_filters,
+            self.no_convs_per_block,
+            initializers=initializers,
+            posterior=self.posterior,
+        )
+        self.conv_layer = nn.Conv2d(
+            num_filters[-1], 2 * self.latent_dim, kernel_size=1, stride=1
+        )
 
         self.sum_input = 0
 
-        nn.init.kaiming_normal_(self.conv_layer.weight, mode='fan_in', nonlinearity='relu')
+        nn.init.kaiming_normal_(
+            self.conv_layer.weight, mode="fan_in", nonlinearity="relu"
+        )
         nn.init.normal_(self.conv_layer.bias)
 
     def forward(self, input, segm=None):
@@ -127,8 +155,8 @@ class AxisAlignedConvGaussian(nn.Module):
         mu_log_sigma = torch.squeeze(mu_log_sigma, dim=2)
         mu_log_sigma = torch.squeeze(mu_log_sigma, dim=2)
 
-        mu = mu_log_sigma[:, :self.latent_dim]
-        log_sigma = mu_log_sigma[:, self.latent_dim:]
+        mu = mu_log_sigma[:, : self.latent_dim]
+        log_sigma = mu_log_sigma[:, self.latent_dim :]
 
         # This is a multivariate normal with diagonal covariance matrix sigma
         # https://github.com/pytorch/pytorch/pull/11178
@@ -142,8 +170,16 @@ class Fcomb(nn.Module):
     and output of the UNet (the feature map) by concatenating them along their channel axis.
     """
 
-    def __init__(self, num_filters, latent_dim, num_output_channels, num_classes, no_convs_fcomb, initializers,
-                 use_tile=True):
+    def __init__(
+        self,
+        num_filters,
+        latent_dim,
+        num_output_channels,
+        num_classes,
+        no_convs_fcomb,
+        initializers,
+        use_tile=True,
+    ):
         super(Fcomb, self).__init__()
         self.num_channels = num_output_channels  # output channels
         self.num_classes = num_classes
@@ -153,22 +189,32 @@ class Fcomb(nn.Module):
         self.latent_dim = latent_dim
         self.use_tile = use_tile
         self.no_convs_fcomb = no_convs_fcomb
-        self.name = 'Fcomb'
+        self.name = "Fcomb"
 
         if self.use_tile:
             layers = []
 
             # Decoder of N x a 1x1 convolution followed by a ReLU activation function except for the last layer
-            layers.append(Conv2D(self.num_filters[0] + self.latent_dim, self.num_filters[0], kernel_size=1))
+            layers.append(
+                Conv2D(
+                    self.num_filters[0] + self.latent_dim,
+                    self.num_filters[0],
+                    kernel_size=1,
+                )
+            )
 
             for _ in range(no_convs_fcomb - 2):
-                layers.append(Conv2D(self.num_filters[0], self.num_filters[0], kernel_size=1))
+                layers.append(
+                    Conv2D(self.num_filters[0], self.num_filters[0], kernel_size=1)
+                )
 
             self.layers = nn.Sequential(*layers)
 
-            self.last_layer = nn.Conv2d(self.num_filters[0], self.num_classes, kernel_size=1)
+            self.last_layer = nn.Conv2d(
+                self.num_filters[0], self.num_classes, kernel_size=1
+            )
 
-            if initializers['w'] == 'orthogonal':
+            if initializers["w"] == "orthogonal":
                 self.layers.apply(init_weights_orthogonal_normal)
                 self.last_layer.apply(init_weights_orthogonal_normal)
             else:
@@ -184,8 +230,9 @@ class Fcomb(nn.Module):
         repeat_idx = [1] * a.dim()
         repeat_idx[dim] = n_tile
         a = a.repeat(*(repeat_idx))
-        order_index = torch.LongTensor(np.concatenate([init_dim * np.arange(n_tile) + i for i in range(init_dim)])).to(
-            device)
+        order_index = torch.LongTensor(
+            np.concatenate([init_dim * np.arange(n_tile) + i for i in range(init_dim)])
+        ).to(device)
         return torch.index_select(a, dim, order_index)
 
     def forward(self, feature_map, z):
@@ -215,16 +262,19 @@ class ProbabilisticUnet(nn.Module):
     no_cons_per_block: no convs per block in the (convolutional) encoder of prior and posterior
     """
 
-    def __init__(self, input_channels=1,
-                 num_classes=1,
-                 num_filters=None,
-                 latent_levels=1,
-                 latent_dim=2,
-                 initializers=None,
-                 no_convs_fcomb=4,
-                 image_size=(1, 128, 128),
-                 beta=10.0,
-                 reversible=False):
+    def __init__(
+        self,
+        input_channels=1,
+        num_classes=1,
+        num_filters=None,
+        latent_levels=1,
+        latent_dim=2,
+        initializers=None,
+        no_convs_fcomb=4,
+        image_size=(1, 128, 128),
+        beta=10.0,
+        reversible=False,
+    ):
         super(ProbabilisticUnet, self).__init__()
         self.input_channels = input_channels
         self.num_classes = num_classes
@@ -232,22 +282,50 @@ class ProbabilisticUnet(nn.Module):
         self.latent_dim = latent_dim
         self.no_convs_per_block = 3
         self.no_convs_fcomb = no_convs_fcomb
-        self.initializers = {'w': 'he_normal', 'b': 'normal'}
+        self.initializers = {"w": "he_normal", "b": "normal"}
         self.z_prior_sample = 0
 
-        self.unet = Unet(self.input_channels, self.num_classes, self.num_filters, initializers=self.initializers,
-                         apply_last_layer=False, padding=True, reversible=reversible
-                         ).to(device)
-        self.prior = AxisAlignedConvGaussian(self.input_channels, self.num_filters, self.no_convs_per_block,
-                                             self.latent_dim, initializers=self.initializers).to(device)
-        self.posterior = AxisAlignedConvGaussian(self.input_channels, self.num_filters, self.no_convs_per_block,
-                                                  self.latent_dim, initializers=self.initializers, posterior=True
-                                                 ).to(device)
-        self.fcomb = Fcomb(self.num_filters, self.latent_dim, self.input_channels, self.num_classes,
-                           self.no_convs_fcomb, initializers={'w': 'orthogonal', 'b': 'normal'}, use_tile=True
-                           ).to(device)
+        self.unet = Unet(
+            self.input_channels,
+            self.num_classes,
+            self.num_filters,
+            initializers=self.initializers,
+            apply_last_layer=False,
+            padding=True,
+            reversible=reversible,
+        ).to(device)
+        self.prior = AxisAlignedConvGaussian(
+            self.input_channels,
+            self.num_filters,
+            self.no_convs_per_block,
+            self.latent_dim,
+            initializers=self.initializers,
+        ).to(device)
+        self.posterior = AxisAlignedConvGaussian(
+            self.input_channels,
+            self.num_filters,
+            self.no_convs_per_block,
+            self.latent_dim,
+            initializers=self.initializers,
+            posterior=True,
+        ).to(device)
+        self.fcomb = Fcomb(
+            self.num_filters,
+            self.latent_dim,
+            self.input_channels,
+            self.num_classes,
+            self.no_convs_fcomb,
+            initializers={"w": "orthogonal", "b": "normal"},
+            use_tile=True,
+        ).to(device)
 
-        self.last_conv = Conv2D(32, num_classes, kernel_size=1, activation=torch.nn.Identity, norm=torch.nn.Identity)
+        self.last_conv = Conv2D(
+            32,
+            num_classes,
+            kernel_size=1,
+            activation=torch.nn.Identity,
+            norm=torch.nn.Identity,
+        )
 
     def forward(self, patch, segm=None, training=True):
         """
@@ -255,13 +333,12 @@ class ProbabilisticUnet(nn.Module):
         in case training is True also construct posterior latent space
         """
 
-        ## here starts original forward pass 
+        ## here starts original forward pass
         self.patch = patch
         if training:
             self.posterior_latent_space = self.posterior.forward(patch, segm)
         self.prior_latent_space = self.prior.forward(patch)
         self.unet_features = self.unet.forward(patch, False)
-
 
     def sample(self, testing=False):
         """
@@ -278,7 +355,9 @@ class ProbabilisticUnet(nn.Module):
             self.z_prior_sample = z_prior
         return self.fcomb.forward(self.unet_features, z_prior)
 
-    def reconstruct(self, use_posterior_mean=False, calculate_posterior=False, z_posterior=None):
+    def reconstruct(
+        self, use_posterior_mean=False, calculate_posterior=False, z_posterior=None
+    ):
         """
         Reconstruct a segmentation from a posterior sample (decoding a posterior sample) and UNet feature map
         use_posterior_mean: use posterior_mean instead of sampling z_q
@@ -299,8 +378,12 @@ class ProbabilisticUnet(nn.Module):
         return s_accum
 
     def KL_two_gauss_with_diag_cov(self, mu0, sigma0, mu1, sigma1):
-        sigma0_fs = torch.mul(torch.flatten(sigma0, start_dim=1), torch.flatten(sigma0, start_dim=1))
-        sigma1_fs = torch.mul(torch.flatten(sigma1, start_dim=1), torch.flatten(sigma1, start_dim=1))
+        sigma0_fs = torch.mul(
+            torch.flatten(sigma0, start_dim=1), torch.flatten(sigma0, start_dim=1)
+        )
+        sigma1_fs = torch.mul(
+            torch.flatten(sigma1, start_dim=1), torch.flatten(sigma1, start_dim=1)
+        )
 
         logsigma0_fs = torch.log(sigma0_fs + 1e-10)
         logsigma1_fs = torch.log(sigma1_fs + 1e-10)
@@ -309,11 +392,17 @@ class ProbabilisticUnet(nn.Module):
         mu1_f = torch.flatten(mu1, start_dim=1)
 
         return torch.mean(
-            0.5*torch.sum(
+            0.5
+            * torch.sum(
                 torch.div(
                     sigma0_fs + torch.mul((mu1_f - mu0_f), (mu1_f - mu0_f)),
-                    sigma1_fs + 1e-10)
-                + logsigma1_fs - logsigma0_fs - 1, dim=1)
+                    sigma1_fs + 1e-10,
+                )
+                + logsigma1_fs
+                - logsigma0_fs
+                - 1,
+                dim=1,
+            )
         )
 
     def kl_divergence(self, analytic=True, calculate_posterior=False, z_posterior=None):
@@ -331,14 +420,14 @@ class ProbabilisticUnet(nn.Module):
         return kl_div
 
     def multinoulli_loss(self, reconstruction, target):
-        criterion = torch.nn.MSELoss(reduction='none')
+        criterion = torch.nn.MSELoss(reduction="none")
 
         batch_size = reconstruction.shape[0]
 
         recon_flat = reconstruction.view(batch_size, -1)
         target_flat = target.view(batch_size, -1)
         return torch.mean(
-            torch.sum(criterion(target=target_flat, input=recon_flat), dim=1)    
+            torch.sum(criterion(target=target_flat, input=recon_flat), dim=1)
         )
 
     def elbo(self, segm, analytic_kl=False, reconstruct_posterior_mean=False):
@@ -351,12 +440,20 @@ class ProbabilisticUnet(nn.Module):
         z_posterior = self.posterior_latent_space.rsample()
 
         self.kl_divergence_loss = torch.mean(
-            self.kl_divergence(analytic=analytic_kl, calculate_posterior=False, z_posterior=z_posterior))
+            self.kl_divergence(
+                analytic=analytic_kl, calculate_posterior=False, z_posterior=z_posterior
+            )
+        )
 
         # Here we use the posterior sample sampled above
-        self.reconstruction = self.reconstruct(use_posterior_mean=reconstruct_posterior_mean, calculate_posterior=False,
-                                               z_posterior=z_posterior)
-        reconstruction_loss = criterion(reconstruction=self.reconstruction + self.patch, target=segm)
+        self.reconstruction = self.reconstruct(
+            use_posterior_mean=reconstruct_posterior_mean,
+            calculate_posterior=False,
+            z_posterior=z_posterior,
+        )
+        reconstruction_loss = criterion(
+            reconstruction=self.reconstruction + self.patch, target=segm
+        )
         self.reconstruction_loss = torch.sum(reconstruction_loss)
         self.mean_reconstruction_loss = torch.mean(reconstruction_loss)
 
@@ -364,18 +461,22 @@ class ProbabilisticUnet(nn.Module):
 
     def loss(self, mask):
         elbo = self.elbo(mask)
-        reg_loss = l2_regularisation(self.posterior) + l2_regularisation(self.prior) + l2_regularisation(self.fcomb.layers)
+        reg_loss = (
+            l2_regularisation(self.posterior)
+            + l2_regularisation(self.prior)
+            + l2_regularisation(self.fcomb.layers)
+        )
         loss = -elbo + 1e-5 * reg_loss
         return loss
 
-    def make_prediction(self, img): 
+    def make_prediction(self, img):
         """Performs a prediction to obtain a reconstruction
 
         Args:
             img (torch.Tensor): The undersampled image to reconstruct with shape (n_batch, n_channel, width, height)
 
         Returns:
-            torch.Tensor: The reconstruction from multiple samples with same shape as input 
+            torch.Tensor: The reconstruction from multiple samples with same shape as input
         """
         if torch.cuda.is_available():
             self.cuda()
@@ -386,7 +487,7 @@ class ProbabilisticUnet(nn.Module):
             sample = self.sample(testing=True)
             samples.append(sample)
         return torch.stack(samples)
-    
+
 
 def compute_train_loss_and_train(train_loader, model, optimizer, use_gpu, epoch):
     """
@@ -398,13 +499,13 @@ def compute_train_loss_and_train(train_loader, model, optimizer, use_gpu, epoch)
     kl_running_loss = 0.0
     recon_running_loss = 0.0
 
-    for x,y,_,_ in train_loader:
+    for x, y, _, _ in train_loader:
         if use_gpu:
             x = x.cuda()
             y = y.cuda()
-        
+
         # forward pass
-        outputs = model(x,y)
+        outputs = model(x, y)
 
         # compute loss
         loss = model.loss(y)
@@ -417,14 +518,12 @@ def compute_train_loss_and_train(train_loader, model, optimizer, use_gpu, epoch)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
- 
+
         running_loss += loss.detach().cpu().numpy() * train_loader.batch_size
         kl_running_loss += kl_loss * train_loader.batch_size
         recon_running_loss += rec_loss * train_loader.batch_size
         torch.cuda.empty_cache()
 
-
-        
     epoch_loss = running_loss / len(train_loader.dataset)
     epoch_kl_loss = kl_running_loss / len(train_loader.dataset)
     epoch_recon_loss = recon_running_loss / len(train_loader.dataset)
@@ -438,17 +537,17 @@ def compute_eval_loss(test_loader, model, use_gpu, epoch):
     """
     model.eval()
 
-    running_loss = 0.0 
+    running_loss = 0.0
     kl_running_loss = 0.0
     recon_running_loss = 0.0
     with torch.no_grad():
-        for x,y,_,_ in test_loader:
+        for x, y, _, _ in test_loader:
             if use_gpu:
                 x = x.cuda()
                 y = y.cuda()
 
             # forward pass
-            outputs = model(x,y)
+            outputs = model(x, y)
 
             # compute loss
             loss = model.loss(y)
@@ -458,14 +557,12 @@ def compute_eval_loss(test_loader, model, use_gpu, epoch):
             kl_loss = model.kl_divergence_loss
             rec_loss = model.reconstruction_loss
 
-            # backward pass 
+            # backward pass
 
             # track running loss
             running_loss += loss_tot * test_loader.batch_size
             kl_running_loss += kl_loss * test_loader.batch_size
             recon_running_loss += rec_loss * test_loader.batch_size
-        
-        
 
     epoch_loss = running_loss / len(test_loader.dataset)
     epoch_kl_loss = kl_running_loss / len(test_loader.dataset)
@@ -475,7 +572,17 @@ def compute_eval_loss(test_loader, model, use_gpu, epoch):
     return epoch_loss, epoch_kl_loss, epoch_recon_loss
 
 
-def train_model(model, train_loader, eval_loader, optim, epochs=1, save_model=None, save_path=None, continue_training_path=None, eval_metric=None):
+def train_model(
+    model,
+    train_loader,
+    eval_loader,
+    optim,
+    epochs=1,
+    save_model=None,
+    save_path=None,
+    continue_training_path=None,
+    eval_metric=None,
+):
     """
     Trains and evaluates the model. Additionally, training stats can be tracked and best performing models (according to evaluation loss and GED) can be saveed
     params:
@@ -492,58 +599,70 @@ def train_model(model, train_loader, eval_loader, optim, epochs=1, save_model=No
 
     if continue_training_path:
         checkpoint = torch.load(continue_training_path)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optim.load_state_dict(checkpoint['optimizer_state_dict'])
-    
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optim.load_state_dict(checkpoint["optimizer_state_dict"])
+
     # define current best losses
     best_total_eval_loss = np.inf
     best_ssim = -np.inf
 
-
     use_gpu = torch.cuda.is_available()
-    print('Using GPU:', use_gpu)
+    print("Using GPU:", use_gpu)
     if use_gpu:
         model.cuda()
 
     # initialize W&B project
 
     for epoch in range(epochs):
-        print('Epoch', epoch)
+        print("Epoch", epoch)
         # train  the model and compute train loss
-        train_running_loss, train_kl_loss, train_recon_loss = compute_train_loss_and_train(train_loader, model, optim, use_gpu, epoch)
+        (
+            train_running_loss,
+            train_kl_loss,
+            train_recon_loss,
+        ) = compute_train_loss_and_train(train_loader, model, optim, use_gpu, epoch)
 
         # compute evaluation loss
-        eval_running_loss, eval_kl_loss, eval_recon_loss = compute_eval_loss(eval_loader, model, use_gpu, epoch)
+        eval_running_loss, eval_kl_loss, eval_recon_loss = compute_eval_loss(
+            eval_loader, model, use_gpu, epoch
+        )
 
         # compute GED between samples and GTs on evaluation set
         if eval_metric:
             if epoch % 50 == 0:
-                psnr, ssim,_ = utils.eval_ssim_psnr_ncc(model, eval_loader, model_type='punet', n_samples=10)
+                psnr, ssim, _ = utils.eval_ssim_psnr_ncc(
+                    model, eval_loader, model_type="punet", n_samples=10
+                )
 
-        
-        if save_model==True:
+        if save_model == True:
             if eval_running_loss < best_total_eval_loss:
                 best_total_eval_loss = eval_running_loss
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optim.state_dict(),
-                    'loss': train_running_loss,
-                    }, f'{save_path}probabilistic_unet_best_eval_epoch{epoch}.pth')
-                print('saving best eval model')
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optim.state_dict(),
+                        "loss": train_running_loss,
+                    },
+                    f"{save_path}probabilistic_unet_best_eval_epoch{epoch}.pth",
+                )
+                print("saving best eval model")
             if eval_metric:
                 if epoch % 50 == 0:
                     if ssim > best_ssim:
                         best_ssim = ssim
-                        torch.save({
-                        'epoch': epoch,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optim.state_dict(),
-                        'loss': train_running_loss,
-                        }, f'{save_path}probabilistic_unet_best_ged_epoch{epoch}.pth')
+                        torch.save(
+                            {
+                                "epoch": epoch,
+                                "model_state_dict": model.state_dict(),
+                                "optimizer_state_dict": optim.state_dict(),
+                                "loss": train_running_loss,
+                            },
+                            f"{save_path}probabilistic_unet_best_ged_epoch{epoch}.pth",
+                        )
                         # torch.save(model.state_dict(), save_path +  f'phiseg_best_ged_epoch{epoch}.pth')
-                        print('saving best GED model')
+                        print("saving best GED model")
 
-        print('training loss:', train_running_loss)
-        print('evaluation loss:', eval_running_loss)
+        print("training loss:", train_running_loss)
+        print("evaluation loss:", eval_running_loss)
     return

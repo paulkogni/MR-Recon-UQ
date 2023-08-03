@@ -12,6 +12,7 @@ import pandas as pd
 
 import meddlr.ops.complex as cplx
 
+
 def psnr(
     gt: np.ndarray, pred: np.ndarray, maxval: Optional[float] = None
 ) -> np.ndarray:
@@ -31,75 +32,81 @@ def make_prediction_on_volume(volume_us, model, n_samples):
     Returns:
         numpy array: samples for the reconstructed volume with shape (20,x,y,z,2)
     """
-    final_shape = (n_samples,) + volume_us.shape # because we always have 20 samples
+    final_shape = (n_samples,) + volume_us.shape  # because we always have 20 samples
     reconstructed_volume = np.zeros(final_shape)
 
-    z_dim = final_shape[-2] 
+    z_dim = final_shape[-2]
 
     for z in range(z_dim):
-        slice = volume_us[:,:,z,:]
-        slice = np.transpose(slice, axes=(2,0,1)) # move complex value channel to the beginning
+        slice = volume_us[:, :, z, :]
+        slice = np.transpose(
+            slice, axes=(2, 0, 1)
+        )  # move complex value channel to the beginning
 
-        # convert to tensor 
+        # convert to tensor
         slice = torch.Tensor(slice)
 
         # normalize
         mean = slice.mean()
         std = slice.std()
         eps = 1e-5
-        slice = ((slice - mean) / (std + eps)).unsqueeze(0) # fake batch dimension
-
+        slice = ((slice - mean) / (std + eps)).unsqueeze(0)  # fake batch dimension
 
         # perform prediction
         with torch.no_grad():
-            predicted_slice = model.make_prediction(slice).squeeze().cpu() # has shape (20, 2, x, y)
-        
+            predicted_slice = (
+                model.make_prediction(slice).squeeze().cpu()
+            )  # has shape (20, 2, x, y)
+
         # add residual to slice
         if n_samples == 2:
             predicted_slice[0] = predicted_slice[0] + slice
         else:
             predicted_slice = predicted_slice + slice
 
-        # unnormalize, go back to numpy 
+        # unnormalize, go back to numpy
         predicted_slice = (predicted_slice * std + mean).numpy()
 
         # get axes in correct order
-        predicted_slice = np.transpose(predicted_slice, axes=(0,2,3,1))
+        predicted_slice = np.transpose(predicted_slice, axes=(0, 2, 3, 1))
 
-        reconstructed_volume[:,:,:,z,:] = predicted_slice
-
+        reconstructed_volume[:, :, :, z, :] = predicted_slice
 
     return reconstructed_volume
+
 
 def ssim_psnr_on_h5_skmtea(pred_dir, val_dir):
     ssim_list = []
     psnr_list = []
 
-
-
     for tgt_file in os.listdir(pred_dir):
         one_vol_ssim = []
         one_vol_psnr = []
-        with h5py.File(os.path.join(val_dir, tgt_file)) as target, h5py.File(os.path.join(pred_dir, tgt_file)) as recons:
-
-            target = target['img_fs'][()]
-            recons = recons['recon'][()]
+        with h5py.File(os.path.join(val_dir, tgt_file)) as target, h5py.File(
+            os.path.join(pred_dir, tgt_file)
+        ) as recons:
+            target = target["img_fs"][()]
+            recons = recons["recon"][()]
 
             if recons.shape[0] == 2:
                 mean_recons = recons[0]
             else:
                 mean_recons = np.mean(recons, axis=0)
-            
+
             mean_recons = cplx.abs(torch.Tensor(mean_recons)).numpy()
             target = cplx.abs(torch.Tensor(target)).numpy()
 
             assert mean_recons.shape == target.shape
 
             for i in range(target.shape[-1]):
-                ssim_elem = structural_similarity(target[:,:,i], mean_recons[:,:,i], data_range=target.max())
+                ssim_elem = structural_similarity(
+                    target[:, :, i], mean_recons[:, :, i], data_range=target.max()
+                )
                 one_vol_ssim.append(ssim_elem)
 
-                psnr_elem = psnr(target[:,:,i], mean_recons[:,:,i], maxval=target.max())
+                psnr_elem = psnr(
+                    target[:, :, i], mean_recons[:, :, i], maxval=target.max()
+                )
                 one_vol_psnr.append(psnr_elem)
 
             ssim_list.append(np.mean(np.array(one_vol_ssim)))
@@ -108,11 +115,13 @@ def ssim_psnr_on_h5_skmtea(pred_dir, val_dir):
     return np.mean(np.array(ssim_list)), np.mean(np.array(psnr_list))
 
 
-
-def eval_ssim_psnr_big(us_factors, base_data_origin, model_names, settings, base_save_path):
-
-    # define the name for the indices in pandas dataframe 
-    indis = [setting + ' ' + us_factor for setting in settings for us_factor in us_factors]
+def eval_ssim_psnr_big(
+    us_factors, base_data_origin, model_names, settings, base_save_path
+):
+    # define the name for the indices in pandas dataframe
+    indis = [
+        setting + " " + us_factor for setting in settings for us_factor in us_factors
+    ]
 
     # define the pandas dataframe where to store the results
     df = pd.DataFrame(index=indis, columns=model_names, dtype=object)
@@ -123,16 +132,18 @@ def eval_ssim_psnr_big(us_factors, base_data_origin, model_names, settings, base
         print(files_origin)
 
         for model_name in model_names:
-            print('doing evaluation for', model_name)
+            print("doing evaluation for", model_name)
             for setting in settings:
-                print('doing evaluation for', setting)
-                recon_path = os.path.join(base_save_path, us_factor[8:], model_name, setting)
+                print("doing evaluation for", setting)
+                recon_path = os.path.join(
+                    base_save_path, us_factor[8:], model_name, setting
+                )
                 # recon_path = os.path.join(base_save_path, '4x', model_name, setting)
 
                 ssim, psnr = ssim_psnr_on_h5_skmtea(recon_path, files_origin)
 
-                df[model_name][setting + ' ' + us_factor] = (ssim, psnr)
-    
+                df[model_name][setting + " " + us_factor] = (ssim, psnr)
+
     print(df)
 
 
@@ -149,18 +160,19 @@ def mse_error_map(gt, samples):
     # shape of gt: (x,y)
     # shape of samples: (n_samples,x,y)
 
-    loss_fn = torch.nn.MSELoss(reduction='none')
+    loss_fn = torch.nn.MSELoss(reduction="none")
     mse_errors = []
-    # loop over samples and 
+    # loop over samples and
     with torch.no_grad():
         for i in range(len(samples)):
             err = loss_fn(gt, samples[i])
             mse_errors.append(err.numpy())
-    
+
     mse_errors = np.array(mse_errors)
     return np.mean(mse_errors, axis=0)
 
-def ncc(a,v, zero_norm=True):
+
+def ncc(a, v, zero_norm=True):
     """Computes the normalized cross correaltion between two arrays
 
     Args:
@@ -174,12 +186,10 @@ def ncc(a,v, zero_norm=True):
     v = v.flatten()
     eps = 1e-15
     if zero_norm:
-
         a = (a - np.mean(a)) / (np.std(a) * len(a) + eps)
         v = (v - np.mean(v)) / (np.std(v) + eps)
 
     else:
-
         a = (a) / (np.std(a) * len(a) + eps)
         v = (v) / (np.std(v) + eps)
 
@@ -191,27 +201,27 @@ def ncc_on_h5_skmtea(pred_dir, val_dir):
 
     for tgt_file in os.listdir(pred_dir):
         one_vol_ncc = []
-        with h5py.File(os.path.join(val_dir, tgt_file)) as target, h5py.File(os.path.join(pred_dir, tgt_file)) as recons:
-
-            target = target['img_fs'][()]
-            recons = recons['recon'][()]
+        with h5py.File(os.path.join(val_dir, tgt_file)) as target, h5py.File(
+            os.path.join(pred_dir, tgt_file)
+        ) as recons:
+            target = target["img_fs"][()]
+            recons = recons["recon"][()]
 
             if recons.shape[0] == 2:
-                var_recons = recons[1]**2
-                recons = recons[0:1,...]
+                var_recons = recons[1] ** 2
+                recons = recons[0:1, ...]
             else:
                 var_recons = np.var(recons, axis=0)
-            
-            var_recons = cplx.abs(torch.Tensor(var_recons)).numpy() # has shape (x,y,z)
-            target = cplx.abs(torch.Tensor(target)) # has shape (x,y,z)
-            recons = cplx.abs(torch.Tensor(recons)) # has shape (n_samples,x,y,z)
+
+            var_recons = cplx.abs(torch.Tensor(var_recons)).numpy()  # has shape (x,y,z)
+            target = cplx.abs(torch.Tensor(target))  # has shape (x,y,z)
+            recons = cplx.abs(torch.Tensor(recons))  # has shape (n_samples,x,y,z)
 
             for i in range(target.shape[-1]):
-                err_map = mse_error_map(target[:,:,i], recons[:,:,:,i])
-                assert err_map.shape == var_recons[:,:,i].shape
-                ncc_val = ncc(var_recons[:,:,i], err_map)
+                err_map = mse_error_map(target[:, :, i], recons[:, :, :, i])
+                assert err_map.shape == var_recons[:, :, i].shape
+                ncc_val = ncc(var_recons[:, :, i], err_map)
                 one_vol_ncc.append(ncc_val)
-
 
             ncc_list.append(np.mean(np.array(one_vol_ncc)))
 
@@ -219,9 +229,10 @@ def ncc_on_h5_skmtea(pred_dir, val_dir):
 
 
 def eval_ncc_big(us_factors, base_data_origin, model_names, settings, base_save_path):
-
-    # define the name for the indices in pandas dataframe 
-    indis = [setting + ' ' + us_factor for setting in settings for us_factor in us_factors]
+    # define the name for the indices in pandas dataframe
+    indis = [
+        setting + " " + us_factor for setting in settings for us_factor in us_factors
+    ]
 
     # define the pandas dataframe where to store the results
     df = pd.DataFrame(index=indis, columns=model_names, dtype=object)
@@ -232,18 +243,19 @@ def eval_ncc_big(us_factors, base_data_origin, model_names, settings, base_save_
         print(files_origin)
 
         for model_name in model_names:
-            print('doing evaluation for', model_name)
+            print("doing evaluation for", model_name)
             for setting in settings:
-                print('doing evaluation for', setting)
-                recon_path = os.path.join(base_save_path, us_factor[8:], model_name, setting)
+                print("doing evaluation for", setting)
+                recon_path = os.path.join(
+                    base_save_path, us_factor[8:], model_name, setting
+                )
                 # recon_path = os.path.join(base_save_path, '4x', model_name, setting)
 
                 ncc_val = ncc_on_h5_skmtea(recon_path, files_origin)
 
-                df[model_name][setting + ' ' + us_factor] = ncc_val
-    
-    print(df)
+                df[model_name][setting + " " + us_factor] = ncc_val
 
+    print(df)
 
 
 def var_on_h5_skmtea(pred_dir):
@@ -251,18 +263,18 @@ def var_on_h5_skmtea(pred_dir):
 
     for tgt_file in os.listdir(pred_dir):
         with h5py.File(os.path.join(pred_dir, tgt_file)) as recons:
-
-            recons = recons['recon'][()]
-            print('recon shape', recons.shape)
+            recons = recons["recon"][()]
+            print("recon shape", recons.shape)
             if recons.shape[0] == 2:
-                var_recons = recons[1]**2
-                recons = recons[0:1,...]
+                var_recons = recons[1] ** 2
+                recons = recons[0:1, ...]
             else:
                 var_recons = np.var(recons, axis=0)
-            
-            print('variance shape', var_recons.shape)
-            mean_var_recons_one_vol = np.mean(cplx.abs(torch.Tensor(var_recons)).numpy())
 
+            print("variance shape", var_recons.shape)
+            mean_var_recons_one_vol = np.mean(
+                cplx.abs(torch.Tensor(var_recons)).numpy()
+            )
 
             var_list.append(mean_var_recons_one_vol)
 
@@ -270,28 +282,29 @@ def var_on_h5_skmtea(pred_dir):
 
 
 def eval_var_big(us_factors, model_names, settings, base_save_path):
-
-    # define the name for the indices in pandas dataframe 
-    indis = [setting + ' ' + us_factor for setting in settings for us_factor in us_factors]
+    # define the name for the indices in pandas dataframe
+    indis = [
+        setting + " " + us_factor for setting in settings for us_factor in us_factors
+    ]
 
     # define the pandas dataframe where to store the results
     df = pd.DataFrame(index=indis, columns=model_names, dtype=object)
 
     for us_factor in us_factors:
-
         for model_name in model_names:
-            print('doing evaluation for', model_name)
+            print("doing evaluation for", model_name)
             for setting in settings:
-                print('doing evaluation for', setting)
-                recon_path = os.path.join(base_save_path, us_factor[8:], model_name, setting)
+                print("doing evaluation for", setting)
+                recon_path = os.path.join(
+                    base_save_path, us_factor[8:], model_name, setting
+                )
                 # recon_path = os.path.join(base_save_path, '4x', model_name, setting)
 
                 ncc_val = var_on_h5_skmtea(recon_path)
 
-                df[model_name][setting + ' ' + us_factor] = ncc_val
-    
-    print(df)
+                df[model_name][setting + " " + us_factor] = ncc_val
 
+    print(df)
 
 
 # Segmentation stuff here
@@ -308,47 +321,50 @@ def make_prediction_on_volume_segmentation(volume_fs, model):
 
     # make exception for heteroscedastic model
     if volume_fs.shape[0] == 2:
-        final_shape = (1,) + volume_fs.shape[1:-1] 
+        final_shape = (1,) + volume_fs.shape[1:-1]
     else:
-        final_shape = volume_fs.shape[:-1] 
+        final_shape = volume_fs.shape[:-1]
     segmentation_volume = np.zeros(final_shape)
 
-    z_dim = final_shape[-1] 
+    z_dim = final_shape[-1]
 
     if torch.cuda.is_available():
         model.cuda()
 
     for i in range(len(segmentation_volume)):
         for z in range(z_dim):
-            slice = volume_fs[i,:,:,z,:]
-            slice = np.transpose(slice, axes=(2,0,1)) # move complex value channel to the beginning
+            slice = volume_fs[i, :, :, z, :]
+            slice = np.transpose(
+                slice, axes=(2, 0, 1)
+            )  # move complex value channel to the beginning
 
-            # convert to tensor 
+            # convert to tensor
             slice = torch.Tensor(slice)
 
             # normalize
             mean = slice.mean()
             std = slice.std()
             eps = 1e-5
-            slice = ((slice - mean) / (std + eps)).unsqueeze(0) # fake batch dimension
+            slice = ((slice - mean) / (std + eps)).unsqueeze(0)  # fake batch dimension
             if torch.cuda.is_available():
                 slice = slice.cuda()
 
-
             # perform prediction
             with torch.no_grad():
-                predicted_slice = model.make_prediction(slice).squeeze().cpu() # has shape (x, y)
-            
-            
-            segmentation_volume[i,:,:,z] = predicted_slice
-            
+                predicted_slice = (
+                    model.make_prediction(slice).squeeze().cpu()
+                )  # has shape (x, y)
+
+            segmentation_volume[i, :, :, z] = predicted_slice
+
         if segmentation_volume.shape[0] == 2:
             break
 
-
     return segmentation_volume
 
+
 import torch.nn.functional as F
+
 
 def ce_error_map_samples(gt_annot):
     """
@@ -358,16 +374,25 @@ def ce_error_map_samples(gt_annot):
     returns: numpy array with shape (n_annotations, n_channels, d1, d2). Contains the cross entropy errors between mean gt annotation and individual gt annotations
     """
 
-    cross_entropy = torch.nn.CrossEntropyLoss(reduction='none')
-    
-    gt_annot_onehot = F.one_hot(torch.Tensor(gt_annot).long(), num_classes=7).permute((0,3,1,2))
+    cross_entropy = torch.nn.CrossEntropyLoss(reduction="none")
 
-    mean_annot = torch.mean(gt_annot_onehot.float(), dim=0).unsqueeze(0)#.softmax(dim=0).unsqueeze(0)
-    
+    gt_annot_onehot = F.one_hot(torch.Tensor(gt_annot).long(), num_classes=7).permute(
+        (0, 3, 1, 2)
+    )
+
+    mean_annot = torch.mean(gt_annot_onehot.float(), dim=0).unsqueeze(
+        0
+    )  # .softmax(dim=0).unsqueeze(0)
 
     ce_errors = []
     for i in range(len(gt_annot)):
-        ce_loss = cross_entropy(input=mean_annot, target=torch.Tensor(gt_annot[i]).unsqueeze(0).long()).squeeze().numpy()
+        ce_loss = (
+            cross_entropy(
+                input=mean_annot, target=torch.Tensor(gt_annot[i]).unsqueeze(0).long()
+            )
+            .squeeze()
+            .numpy()
+        )
         ce_errors.append(ce_loss)
     return np.mean(np.array(ce_errors), axis=0)
 
@@ -380,45 +405,55 @@ def ce_error_map_gts(gt, samples):
     returns: numpy array with shape (n_annotations, n_channels, d1, d2). Contains the cross entropy errors between mean gt annotation and individual gt annotations
     """
 
-    cross_entropy = torch.nn.CrossEntropyLoss(reduction='none')
-    
-    annot_samples = F.one_hot(torch.Tensor(samples).long(), num_classes=7).permute((0,3,1,2))
+    cross_entropy = torch.nn.CrossEntropyLoss(reduction="none")
 
-    mean_annot = torch.mean(annot_samples.float(), dim=0).unsqueeze(0)#.softmax(dim=0).unsqueeze(0)
-    
+    annot_samples = F.one_hot(torch.Tensor(samples).long(), num_classes=7).permute(
+        (0, 3, 1, 2)
+    )
 
+    mean_annot = torch.mean(annot_samples.float(), dim=0).unsqueeze(
+        0
+    )  # .softmax(dim=0).unsqueeze(0)
 
-    ce_loss = cross_entropy(input=mean_annot, target=torch.Tensor(gt).unsqueeze(0).long()).squeeze().numpy()
+    ce_loss = (
+        cross_entropy(input=mean_annot, target=torch.Tensor(gt).unsqueeze(0).long())
+        .squeeze()
+        .numpy()
+    )
 
     return np.array(ce_loss)
+
 
 def ncc_on_h5_skmtea_segm(pred_dir, val_dir):
     ncc_list = []
 
     for tgt_file in os.listdir(pred_dir):
         one_vol_ncc = []
-        with h5py.File(os.path.join(val_dir, tgt_file)) as target, h5py.File(os.path.join(pred_dir, tgt_file)) as recons:
-
-            target = target['segm'][()] # has shape (x,y,z)
-            recons = recons['segm'][()] # has shape (x,y,z)
-            
+        with h5py.File(os.path.join(val_dir, tgt_file)) as target, h5py.File(
+            os.path.join(pred_dir, tgt_file)
+        ) as recons:
+            target = target["segm"][()]  # has shape (x,y,z)
+            recons = recons["segm"][()]  # has shape (x,y,z)
 
             for i in range(target.shape[-1]):
-                err_map_pred_gt = ce_error_map_gts(target[:,:,i], recons[:,:,:,i])
-                err_map_preds = ce_error_map_samples(recons[:,:,:,i])
+                err_map_pred_gt = ce_error_map_gts(target[:, :, i], recons[:, :, :, i])
+                err_map_preds = ce_error_map_samples(recons[:, :, :, i])
                 assert err_map_pred_gt.shape == err_map_preds.shape
                 ncc_val = ncc(err_map_pred_gt, err_map_preds)
                 one_vol_ncc.append(ncc_val)
-
 
             ncc_list.append(np.mean(np.array(one_vol_ncc)))
 
     return np.mean(np.array(ncc_list))
 
-def eval_ncc_big_segmentations(us_factors, base_data_origin, model_names, settings, base_save_path):
 
-    # define the name for the indices in pandas dataframe 
-    indis = [setting + ' ' + us_factor for setting in settings for us_factor in us_factors]
+def eval_ncc_big_segmentations(
+    us_factors, base_data_origin, model_names, settings, base_save_path
+):
+    # define the name for the indices in pandas dataframe
+    indis = [
+        setting + " " + us_factor for setting in settings for us_factor in us_factors
+    ]
 
     # define the pandas dataframe where to store the results
     df = pd.DataFrame(index=indis, columns=model_names, dtype=object)
@@ -426,20 +461,22 @@ def eval_ncc_big_segmentations(us_factors, base_data_origin, model_names, settin
     for us_factor in us_factors:
         # create input data list
         # files_origin = os.path.join(base_data_origin, us_factor)
-        files_origin = os.path.join(base_data_origin, 'skm-tea-4x')
+        files_origin = os.path.join(base_data_origin, "skm-tea-4x")
         print(files_origin)
 
         for model_name in model_names:
-            print('doing evaluation for', model_name)
+            print("doing evaluation for", model_name)
             for setting in settings:
-                print('doing evaluation for', setting)
-                recon_path = os.path.join(base_save_path, us_factor[8:], model_name, setting)
+                print("doing evaluation for", setting)
+                recon_path = os.path.join(
+                    base_save_path, us_factor[8:], model_name, setting
+                )
                 # recon_path = os.path.join(base_save_path, '4x', model_name, setting)
 
                 # ncc_val = ncc_on_h5_skmtea(recon_path, files_origin)
                 ncc_val = ncc_on_h5_skmtea_segm(recon_path, files_origin)
 
-                df[model_name][setting + ' ' + us_factor] = ncc_val
-    
+                df[model_name][setting + " " + us_factor] = ncc_val
+
     print(df)
     return df
