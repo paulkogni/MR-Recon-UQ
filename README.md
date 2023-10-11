@@ -2,7 +2,7 @@
 ## Uncertainty Estimation and Propagation in Accelerated MRI Reconstruction
 
 Official implementation for the UNSURE@MICCAI2023 workshop paper: **Uncertainty Estimation and Propagation in Accelerated MRI Reconstruction**
-[Arxiv Paper]() 
+[Arxiv Paper](https://arxiv.org/abs/2308.02631) 
 
 ## Model overview
 <div style="displaystyle=block;align=center;"><p align="center" >
@@ -45,7 +45,7 @@ If you use any of the code in this repository for your research, please cite as:
       title={Uncertainty Estimation and Propagation in Accelerated MRI Reconstruction}, 
       author={Fischer, Paul and Küstner, Thomas and Baumgartner, Christian F.},
       year={2023},
-      eprint={},
+      eprint={2308.02631},
       archivePrefix={arXiv},
       primaryClass={cs.CV}
 }
